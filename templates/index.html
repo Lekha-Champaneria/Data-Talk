@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data Talk</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        .voice-btn {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            margin-left: 10px;
+        }
+
+        .voice-btn.recording {
+            background-color: red;
+        }
+
+        .voice-btn svg {
+            margin-right: 5px;
+        }
+
+        .chat-input {
+            display: flex;
+            align-items: center;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="logo-container">
+                <a href="/" class="logo">
+                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path
+                            d="M13.3 2.1L22.5 6.8C23.3 7.3 23.3 8.5 22.5 9L13.3 13.7C12.5 14.1 11.5 14.1 10.7 13.7L1.5 9C0.7 8.5 0.7 7.3 1.5 6.8L10.7 2.1C11.5 1.7 12.5 1.7 13.3 2.1Z"
+                            fill="currentColor" />
+                        <path
+                            d="M22.5 15L13.3 19.7C12.5 20.1 11.5 20.1 10.7 19.7L1.5 15C0.7 14.5 0.7 13.3 1.5 12.8L3 12L10.7 16.2C11.5 16.6 12.5 16.6 13.3 16.2L21 12L22.5 12.8C23.3 13.3 23.3 14.5 22.5 15Z"
+                            fill="currentColor" />
+                    </svg>
+                    <span class="logo-text">Data Talk</span>
+                </a>
+            </div>
+            <label for="upload" class="new-chat-btn">Upload CSV</label>
+            <input id="upload" type="file" accept=".csv" style="display: none;">
+            &nbsp;
+            <button id="newChat" class="new-chat-btn">New Chat</button>
+        </header>
+
+        <div class="chat-container">
+            <div class="history-panel">
+                <h2>Chat History</h2>
+                <div id="chatHistory" class="history-list"></div>
+            </div>
+
+            <div class="chat-main">
+                <div id="chatMessages" class="messages"></div>
+
+                <div id="loadingIndicator" class="loading-indicator hidden">
+                    <svg class="animate-spin" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                        xmlns="http://www.w3.org/2000/svg">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
+                        </circle>
+                        <path class="opacity-75" fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                        </path>
+                    </svg>
+                    <span>Processing your request...</span>
+                </div>
+
+                <form id="chatForm" class="chat-input">
+                    <input type="text" id="userInput" placeholder="Type your message..." autocomplete="off">
+                    <button type="button" id="voiceBtn" class="voice-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M12 14a4 4 0 004-4V6a4 4 0 10-8 0v4a4 4 0 004 4z" fill="currentColor" />
+                            <path
+                                d="M19 10a1 1 0 10-2 0 5 5 0 01-10 0 1 1 0 10-2 0 7 7 0 006 6.92V20h-3a1 1 0 000 2h8a1 1 0 000-2h-3v-3.08A7 7 0 0019 10z"
+                                fill="currentColor" />
+                        </svg>
+                        <span>Record</span>
+                    </button>
+                    <button type="submit">Send</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+    <script>
+        const voiceBtn = document.getElementById('voiceBtn');
+        const userInput = document.getElementById('userInput');
+        let mediaRecorder;
+        let chunks = [];
+
+        voiceBtn.addEventListener('click', async () => {
+            if (!mediaRecorder || mediaRecorder.state === 'inactive') {
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    alert('Your browser does not support audio recording.');
+                    return;
+                }
+
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    // Explicitly specify audio format as WAV
+                    mediaRecorder = new MediaRecorder(stream, {
+                        mimeType: 'audio/webm;codecs=opus'  // Most widely supported format
+                    });
+
+                    mediaRecorder.ondataavailable = (event) => {
+                        if (event.data.size > 0) {
+                            chunks.push(event.data);
+                        }
+                    };
+
+                    mediaRecorder.onstop = async () => {
+                        const audioBlob = new Blob(chunks, { type: 'audio/webm' });
+                        chunks = [];
+
+                        // Convert audio to WAV format before sending
+                        try {
+                            const wavBlob = await convertToWav(audioBlob);
+                            await sendAudioToAPI(wavBlob);
+                        } catch (error) {
+                            console.error('Error converting audio:', error);
+                            alert('Error processing audio recording.');
+                        }
+                    };
+
+                    mediaRecorder.start();
+                    voiceBtn.classList.add('recording');
+                    voiceBtn.querySelector('span').textContent = 'Recording...';
+                } catch (err) {
+                    console.error('Error accessing audio devices:', err);
+                    alert('Could not start recording.');
+                }
+            } else {
+                mediaRecorder.stop();
+                voiceBtn.classList.remove('recording');
+                voiceBtn.querySelector('span').textContent = 'Record';
+            }
+        });
+
+        async function convertToWav(webmBlob) {
+            // Create an audio context
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+            // Convert blob to array buffer
+            const arrayBuffer = await webmBlob.arrayBuffer();
+
+            // Decode the audio data
+            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+            // Create WAV file
+            const wavBuffer = audioBufferToWav(audioBuffer);
+
+            return new Blob([wavBuffer], { type: 'audio/wav' });
+        }
+
+        // Helper function to convert AudioBuffer to WAV format
+        function audioBufferToWav(audioBuffer) {
+            const numChannels = audioBuffer.numberOfChannels;
+            const sampleRate = audioBuffer.sampleRate;
+            const format = 1; // PCM
+            const bitDepth = 16;
+
+            const bytesPerSample = bitDepth / 8;
+            const blockAlign = numChannels * bytesPerSample;
+
+            const buffer = audioBuffer.getChannelData(0);
+            const samples = buffer.length;
+            const dataSize = samples * blockAlign;
+            const headerSize = 44;
+            const totalSize = headerSize + dataSize;
+
+            const arrayBuffer = new ArrayBuffer(totalSize);
+            const dataView = new DataView(arrayBuffer);
+
+            // WAV header
+            writeString(dataView, 0, 'RIFF');
+            dataView.setUint32(4, totalSize - 8, true);
+            writeString(dataView, 8, 'WAVE');
+            writeString(dataView, 12, 'fmt ');
+            dataView.setUint32(16, 16, true);
+            dataView.setUint16(20, format, true);
+            dataView.setUint16(22, numChannels, true);
+            dataView.setUint32(24, sampleRate, true);
+            dataView.setUint32(28, sampleRate * blockAlign, true);
+            dataView.setUint16(32, blockAlign, true);
+            dataView.setUint16(34, bitDepth, true);
+            writeString(dataView, 36, 'data');
+            dataView.setUint32(40, dataSize, true);
+
+            // Write audio data
+            const offset = 44;
+            for (let i = 0; i < samples; i++) {
+                const sample = Math.max(-1, Math.min(1, buffer[i]));
+                dataView.setInt16(offset + (i * bytesPerSample), sample * 0x7FFF, true);
+            }
+
+            return arrayBuffer;
+        }
+
+        function writeString(dataView, offset, string) {
+            for (let i = 0; i < string.length; i++) {
+                dataView.setUint8(offset + i, string.charCodeAt(i));
+            }
+        }
+
+        async function sendAudioToAPI(blob) {
+            const formData = new FormData();
+            formData.append('audio', blob, 'recording.wav');
+
+            try {
+                const response = await fetch('/api/voice', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                const userInput = document.querySelector('#userInput'); // Adjust selector as needed
+                userInput.value = data.transcription;
+            } catch (error) {
+                console.error('Error sending audio:', error);
+                alert('Error sending audio recording to server.');
+            }
+        }
+
+        async function sendAudioToAPI(blob) {
+            const formData = new FormData();
+            formData.append('audio', blob, 'recording.wav');
+
+            await fetch('/api/voice', {
+                method: 'POST',
+                body: formData
+            })
+                .then((response) => response.json())
+                .then((data) => {
+                    userInput.value = data.transcription; // Assuming API returns transcription
+                })
+                .catch((error) => {
+                    console.error('Error sending audio:', error);
+                });
+        }
+    </script>
+</body>
+
+</html>
